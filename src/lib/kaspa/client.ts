@@ -119,6 +119,7 @@ export class KaspaClient {
 
       this.seenHashes.add(block.hash)
       this.blockCallbacks.forEach(cb => cb(block))
+      this.statsCallbacks.forEach(cb => cb({ blocksSeen: this.seenHashes.size }))
 
       // Return parent hashes so caller can fetch them too
       return block.parentHashes

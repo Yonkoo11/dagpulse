@@ -9,6 +9,7 @@ export const networkStats = writable<NetworkStats>({
   daaScore: 0,
   peerCount: 0,
   mempoolSize: 0,
+  blocksSeen: 0,
   isConnected: false,
   isSynced: false,
   serverVersion: '',

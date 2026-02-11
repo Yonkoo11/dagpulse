@@ -4,8 +4,8 @@ import { BLOCK_RADIUS } from './layout'
 const COLORS = {
   bg: '#0a0e1a',
   gridLine: 'rgba(31, 41, 55, 0.3)',
-  edgeBlue: 'rgba(6, 182, 212, 0.35)',
-  edgeRed: 'rgba(107, 114, 128, 0.2)',
+  edgeBlue: 'rgba(6, 182, 212, 0.45)',
+  edgeRed: 'rgba(107, 114, 128, 0.25)',
   blockBlue: '#06b6d4',
   blockBlueFill: '#0e7490',
   blockRed: '#6b7280',
@@ -287,6 +287,18 @@ function drawVignette(ctx: CanvasRenderingContext2D, w: number, h: number) {
   rightGrad.addColorStop(1, COLORS.bg)
   ctx.fillStyle = rightGrad
   ctx.fillRect(w - 60, 0, 60, h)
+
+  const topGrad = ctx.createLinearGradient(0, 0, 0, 40)
+  topGrad.addColorStop(0, COLORS.bg)
+  topGrad.addColorStop(1, 'rgba(10, 14, 26, 0)')
+  ctx.fillStyle = topGrad
+  ctx.fillRect(0, 0, w, 40)
+
+  const bottomGrad = ctx.createLinearGradient(0, h - 40, 0, h)
+  bottomGrad.addColorStop(0, 'rgba(10, 14, 26, 0)')
+  bottomGrad.addColorStop(1, COLORS.bg)
+  ctx.fillStyle = bottomGrad
+  ctx.fillRect(0, h - 40, w, 40)
 }
 
 export function hitTestBlock(

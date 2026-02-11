@@ -25,6 +25,7 @@ export interface NetworkStats {
   daaScore: number
   peerCount: number
   mempoolSize: number
+  blocksSeen: number
   isConnected: boolean
   isSynced: boolean
   serverVersion: string

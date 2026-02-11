@@ -16,7 +16,7 @@
     { label: 'Blue Score', value: $networkStats.blueScore > 0 ? formatNumber($networkStats.blueScore) : '---', key: 'blue' },
     { label: 'DAA Score', value: $networkStats.daaScore > 0 ? formatNumber($networkStats.daaScore) : '---', key: 'daa' },
     { label: 'Hashrate', value: $networkStats.hashrate, key: 'hash' },
-    { label: 'Peers', value: $networkStats.peerCount > 0 ? String($networkStats.peerCount) : '---', key: 'peers' },
+    { label: 'Blocks Seen', value: String($networkStats.blocksSeen || 0), key: 'seen' },
   ])
 
   // Track previous BPS to trigger pulse animation
