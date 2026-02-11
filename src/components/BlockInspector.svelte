@@ -55,7 +55,7 @@
         <button onclick={openExplorer} class="text-[10px] text-accent hover:text-accent-glow transition-colors cursor-pointer bg-transparent border-none px-2 py-0.5 rounded border border-border hover:border-accent">
           View on Explorer &#8599;
         </button>
-        <button onclick={close} class="text-text-dim hover:text-text transition-colors text-sm cursor-pointer">
+        <button onclick={close} aria-label="Close block inspector" class="text-text-dim hover:text-text transition-colors text-sm cursor-pointer p-1">
           &times;
         </button>
       </div>

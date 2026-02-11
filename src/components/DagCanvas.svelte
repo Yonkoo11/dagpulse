@@ -268,6 +268,8 @@
     bind:this={canvasEl}
     class="block w-full h-full touch-none"
     style="cursor: grab;"
+    aria-label="Kaspa BlockDAG visualization. Pan to scroll, scroll to zoom, click blocks to inspect."
+    role="img"
     onwheel={onWheel}
     onmousedown={onMouseDown}
     onmousemove={onMouseMoveHandler}
@@ -282,8 +284,8 @@
   <div class="absolute top-3 right-3 flex gap-2">
     <button
       onclick={resetView}
-      class="px-2 py-1 text-[10px] rounded bg-surface/80 backdrop-blur border border-border text-text-dim hover:text-text transition-colors cursor-pointer"
-      title="Reset view and auto-follow"
+      class="px-3 py-1.5 text-[11px] rounded bg-surface/80 backdrop-blur border border-border text-text-dim hover:text-text transition-colors cursor-pointer"
+      aria-label={$autoFollow ? 'Currently following new blocks' : 'Click to auto-follow new blocks'}
     >
       {$autoFollow ? 'Following' : 'Auto-follow'}
     </button>
