@@ -1,47 +1,119 @@
-# Svelte + TS + Vite
+# DAGPulse
 
-This template should help get you started developing with Svelte and TypeScript in Vite.
+**See the fastest blockchain. Live.**
 
-## Recommended IDE Setup
+DAGPulse is a real-time BlockDAG visualization dashboard for the [Kaspa](https://kaspa.org) network. Watch blocks arrive at ~10 per second, see the directed acyclic graph structure form in real-time, and inspect individual blocks with their transaction data.
 
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode).
+![DAGPulse Screenshot](https://raw.githubusercontent.com/pfrfrfr/dagpulse/main/screenshot.png)
 
-## Need an official Svelte framework?
+## Features
 
-Check out [SvelteKit](https://github.com/sveltejs/kit#readme), which is also powered by Vite. Deploy anywhere with its serverless-first approach and adapt to various platforms, with out of the box support for TypeScript, SCSS, and Less, and easily-added support for mdsvex, GraphQL, PostCSS, Tailwind CSS, and more.
+- **Live BlockDAG Visualization** -- Canvas-based animated DAG showing real Kaspa blocks arriving in real-time with bezier curve edges connecting parent blocks
+- **Real-time Network Stats** -- Blocks per second, transactions per second, hashrate, blue score, DAA score, all updating live
+- **Block Inspector** -- Click any block to see its hash, blue score, DAA score, timestamp, transaction count, parent count, and GHOSTDAG classification
+- **Interactive Canvas** -- Zoom (scroll wheel), pan (click-drag), auto-follow mode that tracks the DAG tip
+- **Speed Benchmark** -- Live comparison showing Kaspa's confirmation speed vs Ethereum (~12s) and Bitcoin (~600s)
+- **Responsive Design** -- Works on desktop, tablet, and mobile with adaptive layout
 
-## Technical considerations
+## How It Works
 
-**Why use this over SvelteKit?**
+DAGPulse connects to the Kaspa REST API (`api.kaspa.org`) and polls for new blocks every second. Each new block is rendered as a node on the HTML5 Canvas, with edges drawn to show the DAG parent-child relationships. The visualization uses column-based layout where blocks arriving in the same time batch are stacked vertically, creating the characteristic widening-narrowing pattern of a BlockDAG.
 
-- It brings its own routing solution which might not be preferable for some users.
-- It is first and foremost a framework that just happens to use Vite under the hood, not a Vite app.
-
-This template contains as little as possible to get started with Vite + TypeScript + Svelte, while taking into account the developer experience with regards to HMR and intellisense. It demonstrates capabilities on par with the other `create-vite` templates and is a good starting point for beginners dipping their toes into a Vite + Svelte project.
-
-Should you later need the extended capabilities and extensibility provided by SvelteKit, the template has been structured similarly to SvelteKit so that it is easy to migrate.
-
-**Why `global.d.ts` instead of `compilerOptions.types` inside `jsconfig.json` or `tsconfig.json`?**
-
-Setting `compilerOptions.types` shuts out all other types not explicitly listed in the configuration. Using triple-slash references keeps the default TypeScript setting of accepting type information from the entire workspace, while also adding `svelte` and `vite/client` type information.
-
-**Why include `.vscode/extensions.json`?**
-
-Other templates indirectly recommend extensions via the README, but this file allows VS Code to prompt the user to install the recommended extension upon opening the project.
-
-**Why enable `allowJs` in the TS template?**
-
-While `allowJs: false` would indeed prevent the use of `.js` files in the project, it does not prevent the use of JavaScript syntax in `.svelte` files. In addition, it would force `checkJs: false`, bringing the worst of both worlds: not being able to guarantee the entire codebase is TypeScript, and also having worse typechecking for the existing JavaScript. In addition, there are valid use cases in which a mixed codebase may be relevant.
-
-**Why is HMR not preserving my local component state?**
-
-HMR state preservation comes with a number of gotchas! It has been disabled by default in both `svelte-hmr` and `@sveltejs/vite-plugin-svelte` due to its often surprising behavior. You can read the details [here](https://github.com/rixo/svelte-hmr#svelte-hmr).
-
-If you have state that's important to retain within a component, consider creating an external store which would not be replaced by HMR.
-
-```ts
-// store.ts
-// An extremely simple external store
-import { writable } from 'svelte/store'
-export default writable(0)
 ```
+┌─────────────────────────────────────────────────┐
+│  DAGPulse (Svelte SPA)                          │
+│  ┌──────────┐  ┌──────────────────────────────┐ │
+│  │Stats     │  │  DAG Canvas                  │ │
+│  │Panel     │  │  ○──○──○                     │ │
+│  │          │  │ /    \ /                     │ │
+│  │BPS: 10   │  │○──────○──○                   │ │
+│  │TPS: 4    │  │       \ /                    │ │
+│  │Score:91M │  │        ○                     │ │
+│  └──────────┘  └──────────────────────────────┘ │
+│  [Block Inspector: hash | Parents | TXs]        │
+│  [Speed Benchmark: KAS 0.3s | ETH 12s | BTC 10m]│
+└──────────────────┬──────────────────────────────┘
+                   │ REST API (polling)
+                   ▼
+        ┌──────────────────┐
+        │ api.kaspa.org    │
+        └──────────────────┘
+```
+
+## Tech Stack
+
+- **Frontend**: [Svelte 5](https://svelte.dev) + [Vite](https://vite.dev) + TypeScript
+- **Styling**: [TailwindCSS 4](https://tailwindcss.com)
+- **Rendering**: HTML5 Canvas API (60fps render loop)
+- **Data**: [Kaspa REST API](https://api.kaspa.org/docs)
+- **Deployment**: GitHub Pages (static SPA)
+
+## Getting Started
+
+```bash
+# Clone
+git clone https://github.com/pfrfrfr/dagpulse.git
+cd dagpulse
+
+# Install
+npm install
+
+# Dev server
+npm run dev
+
+# Build for production
+npm run build
+```
+
+The app will be available at `http://localhost:5173/dagpulse/`
+
+## Project Structure
+
+```
+src/
+├── App.svelte                 # Root layout + client wiring
+├── main.ts                    # Entry point
+├── app.css                    # Tailwind + theme variables + animations
+├── lib/
+│   ├── kaspa/
+│   │   ├── client.ts          # REST API client (poll blocks + stats)
+│   │   ├── types.ts           # TypeScript interfaces
+│   │   └── mock.ts            # Mock data generator (fallback)
+│   ├── dag/
+│   │   ├── renderer.ts        # Canvas DAG renderer (blocks, edges, glow)
+│   │   ├── layout.ts          # Column-based layout algorithm
+│   │   └── interaction.ts     # Pan/zoom state machine
+│   └── stats/
+│       └── engine.ts          # Formatters and utilities
+├── components/
+│   ├── DagCanvas.svelte       # Canvas wrapper + render loop
+│   ├── StatsPanel.svelte      # Live stats sidebar
+│   ├── BlockInspector.svelte  # Block detail panel
+│   ├── SpeedBenchmark.svelte  # Speed comparison bar
+│   ├── Header.svelte          # Top bar with branding
+│   └── ConnectionStatus.svelte# WebSocket status indicator
+└── stores/
+    ├── dag.ts                 # Block data + BPS/TPS calculation
+    ├── stats.ts               # Network stats state
+    └── ui.ts                  # UI state (selection, connection)
+```
+
+## API Endpoints Used
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /info/blockdag` | DAG tip hashes, virtual DAA score |
+| `GET /blocks/{hash}` | Individual block data with parents and transactions |
+| `GET /info/virtual-chain-blue-score` | Current blue score |
+| `GET /info/hashrate` | Network hashrate |
+
+## License
+
+MIT
+
+## Kaspathon Submission
+
+Built for the [Kaspathon](https://dorahacks.io) hackathon.
+
+- **Track**: Real-Time Data
+- **AI Usage**: See [AI_USAGE.md](./AI_USAGE.md)

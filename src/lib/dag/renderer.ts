@@ -105,15 +105,17 @@ function drawAllEdges(
         }
       }
 
-      // If no real edges found, create deterministic connections to previous column
+      // If no real edges found, connect to nearest blocks in previous column
       if (!hasRealEdge && prevCol.length > 0) {
-        // Use hash to deterministically pick 1-3 parents from previous column
-        const hashNum = parseInt(block.hash.slice(0, 8), 16) || 0
-        const numParents = 1 + (hashNum % Math.min(3, prevCol.length))
-
-        for (let p = 0; p < numParents; p++) {
-          const parentIdx = (hashNum + p * 7) % prevCol.length
-          drawEdge(ctx, prevCol[parentIdx], block, state)
+        // Sort previous column by distance to this block (prefer nearby Y)
+        const sorted = [...prevCol].sort((a, b) =>
+          Math.abs(a.y - block.y) - Math.abs(b.y - block.y)
+        )
+        // Connect to 1-2 nearest parents
+        const hashNum = parseInt(block.hash.slice(0, 6), 16) || 0
+        const numParents = 1 + (hashNum % 2)
+        for (let p = 0; p < Math.min(numParents, sorted.length); p++) {
+          drawEdge(ctx, sorted[p], block, state)
         }
       }
     }
