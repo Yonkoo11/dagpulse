@@ -4,7 +4,7 @@
 
 DAGPulse is a real-time BlockDAG visualization dashboard for the [Kaspa](https://kaspa.org) network. Watch blocks arrive at ~10 per second, see the directed acyclic graph structure form in real-time, and inspect individual blocks with their transaction data.
 
-![DAGPulse Screenshot](https://raw.githubusercontent.com/pfrfrfr/dagpulse/main/screenshot.png)
+![DAGPulse Screenshot](https://raw.githubusercontent.com/Yonkoo11/dagpulse/main/screenshot.png)
 
 ## Features
 
@@ -52,7 +52,7 @@ DAGPulse connects to the Kaspa REST API (`api.kaspa.org`) and polls for new bloc
 
 ```bash
 # Clone
-git clone https://github.com/pfrfrfr/dagpulse.git
+git clone https://github.com/Yonkoo11/dagpulse.git
 cd dagpulse
 
 # Install
