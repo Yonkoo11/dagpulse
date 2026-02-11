@@ -7,16 +7,29 @@
     label: string
     value: string
     accent?: boolean
+    key: string
   }
 
   let stats: StatItem[] = $derived([
-    { label: 'Blocks/sec', value: $blocksPerSecond.toFixed(1), accent: true },
-    { label: 'TX/sec', value: $txPerSecond.toFixed(1) },
-    { label: 'Blue Score', value: $networkStats.blueScore > 0 ? formatNumber($networkStats.blueScore) : '---' },
-    { label: 'DAA Score', value: $networkStats.daaScore > 0 ? formatNumber($networkStats.daaScore) : '---' },
-    { label: 'Hashrate', value: $networkStats.hashrate },
-    { label: 'Peers', value: $networkStats.peerCount > 0 ? String($networkStats.peerCount) : '---' },
+    { label: 'Blocks/sec', value: $blocksPerSecond.toFixed(1), accent: true, key: 'bps' },
+    { label: 'TX/sec', value: $txPerSecond.toFixed(1), key: 'tps' },
+    { label: 'Blue Score', value: $networkStats.blueScore > 0 ? formatNumber($networkStats.blueScore) : '---', key: 'blue' },
+    { label: 'DAA Score', value: $networkStats.daaScore > 0 ? formatNumber($networkStats.daaScore) : '---', key: 'daa' },
+    { label: 'Hashrate', value: $networkStats.hashrate, key: 'hash' },
+    { label: 'Peers', value: $networkStats.peerCount > 0 ? String($networkStats.peerCount) : '---', key: 'peers' },
   ])
+
+  // Track previous BPS to trigger pulse animation
+  let prevBps = ''
+  let bpsPulseKey = $state(0)
+
+  $effect(() => {
+    const currentBps = $blocksPerSecond.toFixed(1)
+    if (prevBps && prevBps !== currentBps) {
+      bpsPulseKey++
+    }
+    prevBps = currentBps
+  })
 </script>
 
 <div class="w-56 bg-surface/60 backdrop-blur border-r border-border flex flex-col overflow-y-auto">
@@ -25,12 +38,20 @@
   </div>
 
   <div class="flex-1 p-3 space-y-3">
-    {#each stats as stat}
+    {#each stats as stat (stat.key)}
       <div class="animate-fade-in">
         <div class="text-[10px] text-text-dim uppercase tracking-wider mb-0.5">{stat.label}</div>
-        <div class="text-xl font-bold tabular-nums {stat.accent ? 'text-accent' : 'text-text'}">
-          {stat.value}
-        </div>
+        {#if stat.key === 'bps'}
+          {#key bpsPulseKey}
+            <div class="text-xl font-bold tabular-nums text-accent animate-stat-pulse">
+              {stat.value}
+            </div>
+          {/key}
+        {:else}
+          <div class="text-xl font-bold tabular-nums {stat.accent ? 'text-accent' : 'text-text'}">
+            {stat.value}
+          </div>
+        {/if}
       </div>
     {/each}
   </div>

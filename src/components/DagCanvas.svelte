@@ -150,6 +150,111 @@
     selectBlock(hit)
   }
 
+  // Touch support
+  let touchStartTime = 0
+  let touchStartX = 0
+  let touchStartY = 0
+  let lastPinchDist = 0
+  let isTouchDragging = false
+
+  function getTouchDist(e: TouchEvent): number {
+    const t0 = e.touches[0]
+    const t1 = e.touches[1]
+    const dx = t1.clientX - t0.clientX
+    const dy = t1.clientY - t0.clientY
+    return Math.sqrt(dx * dx + dy * dy)
+  }
+
+  function getTouchCenter(e: TouchEvent): { x: number; y: number } {
+    if (e.touches.length >= 2) {
+      return {
+        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+      }
+    }
+    return { x: e.touches[0].clientX, y: e.touches[0].clientY }
+  }
+
+  function onTouchStart(e: TouchEvent) {
+    e.preventDefault()
+    if (e.touches.length === 1) {
+      touchStartTime = Date.now()
+      touchStartX = e.touches[0].clientX
+      touchStartY = e.touches[0].clientY
+      isTouchDragging = false
+      panZoom = {
+        ...panZoom,
+        isDragging: true,
+        lastMouseX: e.touches[0].clientX,
+        lastMouseY: e.touches[0].clientY,
+      }
+      autoFollow.set(false)
+    } else if (e.touches.length === 2) {
+      lastPinchDist = getTouchDist(e)
+      isTouchDragging = true
+    }
+  }
+
+  function onTouchMove(e: TouchEvent) {
+    e.preventDefault()
+    if (e.touches.length === 1 && panZoom.isDragging) {
+      const dx = e.touches[0].clientX - panZoom.lastMouseX
+      const dy = e.touches[0].clientY - panZoom.lastMouseY
+      if (Math.abs(e.touches[0].clientX - touchStartX) > 5 || Math.abs(e.touches[0].clientY - touchStartY) > 5) {
+        isTouchDragging = true
+      }
+      panZoom = {
+        ...panZoom,
+        offsetX: panZoom.offsetX + dx,
+        offsetY: panZoom.offsetY + dy,
+        lastMouseX: e.touches[0].clientX,
+        lastMouseY: e.touches[0].clientY,
+      }
+    } else if (e.touches.length === 2) {
+      // Pinch zoom
+      const dist = getTouchDist(e)
+      if (lastPinchDist > 0) {
+        const scale = dist / lastPinchDist
+        const newZoom = Math.max(0.3, Math.min(3, panZoom.zoom * scale))
+
+        const center = getTouchCenter(e)
+        const rect = canvasEl.getBoundingClientRect()
+        const cx = center.x - rect.left
+        const cy = center.y - rect.top
+
+        const zoomRatio = newZoom / panZoom.zoom
+        panZoom = {
+          ...panZoom,
+          zoom: newZoom,
+          offsetX: cx - (cx - panZoom.offsetX) * zoomRatio,
+          offsetY: cy - (cy - panZoom.offsetY) * zoomRatio,
+        }
+      }
+      lastPinchDist = dist
+      isTouchDragging = true
+    }
+  }
+
+  function onTouchEnd(e: TouchEvent) {
+    e.preventDefault()
+    // Tap detection: short duration + minimal movement
+    if (!isTouchDragging && Date.now() - touchStartTime < 300) {
+      const rect = canvasEl.getBoundingClientRect()
+      const x = touchStartX - rect.left
+      const y = touchStartY - rect.top
+      const hit = hitTestBlock($blocks, x, y, {
+        offsetX: panZoom.offsetX,
+        offsetY: panZoom.offsetY,
+        zoom: panZoom.zoom,
+        selectedHash: null,
+        hoveredHash: null,
+      })
+      selectBlock(hit)
+    }
+    panZoom = { ...panZoom, isDragging: false }
+    lastPinchDist = 0
+  }
+
   function resetView() {
     autoFollow.set(true)
     panZoom.zoom = 1
@@ -158,15 +263,19 @@
 </script>
 
 <div class="relative flex-1 overflow-hidden" bind:this={containerEl}>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <canvas
     bind:this={canvasEl}
-    class="block w-full h-full"
+    class="block w-full h-full touch-none"
     style="cursor: grab;"
     onwheel={onWheel}
     onmousedown={onMouseDown}
     onmousemove={onMouseMoveHandler}
     onmouseup={onMouseUp}
     onclick={onClick}
+    ontouchstart={onTouchStart}
+    ontouchmove={onTouchMove}
+    ontouchend={onTouchEnd}
   ></canvas>
 
   <!-- Controls overlay -->

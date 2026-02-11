@@ -74,10 +74,21 @@ export class KaspaClient {
       // Fetch tip blocks we haven't seen
       const newHashes = tipHashes.filter(h => !this.seenHashes.has(h))
 
-      // Fetch tip blocks + their parents (for edges)
-      const hashesToFetch = new Set<string>(newHashes.slice(0, 6))
+      // Fetch up to 10 tips per cycle
+      const hashesToFetch = newHashes.slice(0, 10)
 
+      // Fetch tip blocks and collect parent hashes
+      const allParentHashes: string[] = []
       for (const hash of hashesToFetch) {
+        const parents = await this.fetchAndEmitBlock(hash)
+        allParentHashes.push(...parents)
+      }
+
+      // Fetch parent blocks (1 level deep) for denser DAG
+      const unseenParents = allParentHashes
+        .filter(h => !this.seenHashes.has(h))
+        .slice(0, 10)
+      for (const hash of unseenParents) {
         await this.fetchAndEmitBlock(hash)
       }
 
@@ -162,10 +173,10 @@ export class KaspaClient {
   private async startStatsPolling() {
     const poll = async () => {
       try {
-        const [blueScoreRes, hashrateRes, priceRes] = await Promise.allSettled([
+        const [blueScoreRes, hashrateRes, dagInfoRes] = await Promise.allSettled([
           fetch(`${API_BASE}/info/virtual-chain-blue-score`),
           fetch(`${API_BASE}/info/hashrate?stringOnly=false`),
-          fetch(`${API_BASE}/info/price`),
+          fetch(`${API_BASE}/info/blockdag`),
         ])
 
         const stats: Partial<NetworkStats> = { isConnected: true, isSynced: true }
@@ -181,6 +192,12 @@ export class KaspaClient {
           if (hr >= 1e6) stats.hashrate = (hr / 1e6).toFixed(1) + ' TH/s'
           else if (hr >= 1e3) stats.hashrate = (hr / 1e3).toFixed(1) + ' GH/s'
           else stats.hashrate = hr.toFixed(0) + ' MH/s'
+        }
+
+        if (dagInfoRes.status === 'fulfilled' && dagInfoRes.value.ok) {
+          const d = await dagInfoRes.value.json()
+          const daaScore = Number(d.virtualDaaScore || 0)
+          if (daaScore > 0) stats.daaScore = daaScore
         }
 
         this.statsCallbacks.forEach(cb => cb(stats))

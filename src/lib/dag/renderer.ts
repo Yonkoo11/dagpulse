@@ -90,36 +90,49 @@ function drawAllEdges(
 
   const sortedCols = [...columns.keys()].sort((a, b) => a - b)
 
+  // Collect edges, separate highlighted from normal for draw order
+  type Edge = { from: DagBlock; to: DagBlock }
+  const normalEdges: Edge[] = []
+  const highlightEdges: Edge[] = []
+
   for (let ci = 1; ci < sortedCols.length; ci++) {
     const currCol = columns.get(sortedCols[ci])!
     const prevCol = columns.get(sortedCols[ci - 1])!
 
     for (const block of currCol) {
-      // First try real parent connections
       let hasRealEdge = false
       for (const parentHash of block.parentHashes) {
         const parent = blockMap.get(parentHash)
         if (parent && parent.opacity > 0.05) {
-          drawEdge(ctx, parent, block, state)
+          const edge = { from: parent, to: block }
+          const isHL = state.selectedHash === block.hash || state.selectedHash === parent.hash
+            || state.hoveredHash === block.hash || state.hoveredHash === parent.hash
+          if (isHL) highlightEdges.push(edge)
+          else normalEdges.push(edge)
           hasRealEdge = true
         }
       }
 
-      // If no real edges found, connect to nearest blocks in previous column
       if (!hasRealEdge && prevCol.length > 0) {
-        // Sort previous column by distance to this block (prefer nearby Y)
         const sorted = [...prevCol].sort((a, b) =>
           Math.abs(a.y - block.y) - Math.abs(b.y - block.y)
         )
-        // Connect to 1-2 nearest parents
         const hashNum = parseInt(block.hash.slice(0, 6), 16) || 0
         const numParents = 1 + (hashNum % 2)
         for (let p = 0; p < Math.min(numParents, sorted.length); p++) {
-          drawEdge(ctx, sorted[p], block, state)
+          const edge = { from: sorted[p], to: block }
+          const isHL = state.selectedHash === block.hash || state.selectedHash === sorted[p].hash
+            || state.hoveredHash === block.hash || state.hoveredHash === sorted[p].hash
+          if (isHL) highlightEdges.push(edge)
+          else normalEdges.push(edge)
         }
       }
     }
   }
+
+  // Draw normal edges first, highlighted on top
+  for (const e of normalEdges) drawEdge(ctx, e.from, e.to, state)
+  for (const e of highlightEdges) drawEdge(ctx, e.from, e.to, state)
 }
 
 function drawEdge(
@@ -128,8 +141,9 @@ function drawEdge(
   to: DagBlock,
   state: RenderState
 ) {
-  const isHighlight = state.selectedHash === to.hash || state.selectedHash === from.hash
-    || state.hoveredHash === to.hash || state.hoveredHash === from.hash
+  const isSelected = state.selectedHash === to.hash || state.selectedHash === from.hash
+  const isHovered = state.hoveredHash === to.hash || state.hoveredHash === from.hash
+  const isHighlight = isSelected || isHovered
 
   ctx.beginPath()
 
@@ -143,7 +157,11 @@ function drawEdge(
     to.x, to.y
   )
 
-  if (isHighlight) {
+  if (isSelected) {
+    ctx.strokeStyle = COLORS.selectedRing
+    ctx.lineWidth = 2.5
+    ctx.globalAlpha = 0.9
+  } else if (isHovered) {
     ctx.strokeStyle = COLORS.blockBlue
     ctx.lineWidth = 2
     ctx.globalAlpha = 0.8
@@ -154,7 +172,53 @@ function drawEdge(
   }
 
   ctx.stroke()
+
+  // Draw directional arrow at the endpoint (pointing toward child)
+  if (isHighlight || ctx.globalAlpha > 0.3) {
+    ctx.fillStyle = ctx.strokeStyle
+    drawArrowHead(ctx, from, to, cpOffset, isHighlight)
+  }
+
   ctx.globalAlpha = 1
+}
+
+function drawArrowHead(
+  ctx: CanvasRenderingContext2D,
+  from: DagBlock,
+  to: DagBlock,
+  cpOffset: number,
+  isHighlight: boolean
+) {
+  // Get tangent direction at the endpoint using the bezier derivative
+  // For a cubic bezier at t=1, tangent = 3 * (P3 - P2)
+  const cp2x = to.x - cpOffset
+  const cp2y = to.y
+  const tanX = to.x - cp2x
+  const tanY = to.y - cp2y
+
+  const len = Math.sqrt(tanX * tanX + tanY * tanY)
+  if (len < 0.01) return
+
+  const nx = tanX / len
+  const ny = tanY / len
+
+  const arrowSize = isHighlight ? 6 : 4
+  const offset = BLOCK_RADIUS + 2
+
+  // Arrow tip position (just outside the block)
+  const tipX = to.x - nx * offset
+  const tipY = to.y - ny * offset
+
+  // Perpendicular
+  const px = -ny
+  const py = nx
+
+  ctx.beginPath()
+  ctx.moveTo(tipX, tipY)
+  ctx.lineTo(tipX - nx * arrowSize - px * arrowSize * 0.5, tipY - ny * arrowSize - py * arrowSize * 0.5)
+  ctx.lineTo(tipX - nx * arrowSize + px * arrowSize * 0.5, tipY - ny * arrowSize + py * arrowSize * 0.5)
+  ctx.closePath()
+  ctx.fill()
 }
 
 function drawBlock(ctx: CanvasRenderingContext2D, block: DagBlock, state: RenderState) {
