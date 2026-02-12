@@ -6,10 +6,12 @@ const API_BASE = 'https://api.kaspa.org'
 type BlockCallback = (block: DagBlock) => void
 type StatsCallback = (stats: Partial<NetworkStats>) => void
 type StateCallback = (state: ConnectionState) => void
+type BatchCallback = (blocks: DagBlock[]) => void
 
 export class KaspaClient {
   private mockStream: MockBlockStream | null = null
   private blockCallbacks: BlockCallback[] = []
+  private batchCallbacks: BatchCallback[] = []
   private statsCallbacks: StatsCallback[] = []
   private stateCallbacks: StateCallback[] = []
   private _state: ConnectionState = 'disconnected'
@@ -18,12 +20,14 @@ export class KaspaClient {
   private useMock = false
   private seenHashes = new Set<string>()
   private lastBlueScore = 0
+  private initialFetchDone = false
 
   get state(): ConnectionState {
     return this._state
   }
 
   onBlock(cb: BlockCallback) { this.blockCallbacks.push(cb) }
+  onBatch(cb: BatchCallback) { this.batchCallbacks.push(cb) }
   onStats(cb: StatsCallback) { this.statsCallbacks.push(cb) }
   onStateChange(cb: StateCallback) { this.stateCallbacks.push(cb) }
 
@@ -55,8 +59,9 @@ export class KaspaClient {
   }
 
   private async startBlockPolling() {
-    // Fetch initial batch of blocks from current tip
+    // Fetch initial subgraph from current tip
     await this.fetchRecentBlocks()
+    this.initialFetchDone = true
 
     // Poll every 1 second for new blocks
     this.pollInterval = setInterval(() => this.fetchRecentBlocks(), 1000)
@@ -71,31 +76,54 @@ export class KaspaClient {
       const tipHashes: string[] = dagInfo.tipHashes || []
       const currentDaaScore = Number(dagInfo.virtualDaaScore || 0)
 
-      // Fetch tip blocks we haven't seen
-      const newHashes = tipHashes.filter(h => !this.seenHashes.has(h))
+      if (!this.initialFetchDone) {
+        // Initial fetch: pick first tip and walk parents to depth 3 (capped at 80 blocks)
+        const startHash = tipHashes[0]
+        if (startHash) {
+          const subgraph = await this.fetchSubgraph(startHash, 3, 80)
+          this.classifyBlueRed(subgraph)
+          // Emit all blocks as a batch
+          for (const block of subgraph) {
+            this.seenHashes.add(block.hash)
+          }
+          this.batchCallbacks.forEach(cb => cb(subgraph))
+          for (const block of subgraph) {
+            this.blockCallbacks.forEach(cb => cb(block))
+          }
+          this.statsCallbacks.forEach(cb => cb({ blocksSeen: this.seenHashes.size }))
+        }
+      } else {
+        // Subsequent polls: fetch new tips and their parents (depth 1-2)
+        const newHashes = tipHashes.filter(h => !this.seenHashes.has(h))
+        const hashesToFetch = newHashes.slice(0, 10)
 
-      // Fetch up to 10 tips per cycle
-      const hashesToFetch = newHashes.slice(0, 10)
+        if (hashesToFetch.length > 0) {
+          const allNewBlocks: DagBlock[] = []
+          for (const hash of hashesToFetch) {
+            const subgraph = await this.fetchSubgraph(hash, 1, 15)
+            // Filter to only truly new blocks
+            const newBlocks = subgraph.filter(b => !this.seenHashes.has(b.hash))
+            allNewBlocks.push(...newBlocks)
+            for (const block of newBlocks) {
+              this.seenHashes.add(block.hash)
+            }
+          }
 
-      // Fetch tip blocks and collect parent hashes
-      const allParentHashes: string[] = []
-      for (const hash of hashesToFetch) {
-        const parents = await this.fetchAndEmitBlock(hash)
-        allParentHashes.push(...parents)
+          if (allNewBlocks.length > 0) {
+            this.classifyBlueRed(allNewBlocks)
+            this.batchCallbacks.forEach(cb => cb(allNewBlocks))
+            for (const block of allNewBlocks) {
+              this.blockCallbacks.forEach(cb => cb(block))
+            }
+            this.statsCallbacks.forEach(cb => cb({ blocksSeen: this.seenHashes.size }))
+          }
+        }
       }
 
-      // Fetch parent blocks (1 level deep) for denser DAG
-      const unseenParents = allParentHashes
-        .filter(h => !this.seenHashes.has(h))
-        .slice(0, 10)
-      for (const hash of unseenParents) {
-        await this.fetchAndEmitBlock(hash)
-      }
-
-      // Trim seen hashes
-      if (this.seenHashes.size > 300) {
+      // Trim seen hashes to prevent unbounded growth
+      if (this.seenHashes.size > 500) {
         const iter = this.seenHashes.values()
-        for (let i = 0; i < 100; i++) {
+        for (let i = 0; i < 200; i++) {
           this.seenHashes.delete(iter.next().value!)
         }
       }
@@ -108,23 +136,81 @@ export class KaspaClient {
     }
   }
 
-  private async fetchAndEmitBlock(hash: string): Promise<string[]> {
-    if (this.seenHashes.has(hash)) return []
-    try {
-      const res = await fetch(`${API_BASE}/blocks/${hash}`)
-      if (!res.ok) return []
-      const data = await res.json()
-      const block = this.parseRestBlock(data)
-      if (!block) return []
+  /**
+   * Recursively fetch a block and its parents up to maxDepth.
+   * Caps total blocks to maxBlocks to avoid exploding with K=10 parents.
+   */
+  private async fetchSubgraph(startHash: string, maxDepth: number, maxBlocks = 80): Promise<DagBlock[]> {
+    const result: DagBlock[] = []
+    const visited = new Set<string>()
+    let currentLevel = [startHash]
 
-      this.seenHashes.add(block.hash)
-      this.blockCallbacks.forEach(cb => cb(block))
-      this.statsCallbacks.forEach(cb => cb({ blocksSeen: this.seenHashes.size }))
+    for (let depth = 0; depth <= maxDepth && currentLevel.length > 0 && result.length < maxBlocks; depth++) {
+      const nextLevel: string[] = []
+      // Cap blocks per level to prevent exponential blowup (K=10 parents per block)
+      const levelHashes = currentLevel.slice(0, Math.max(5, maxBlocks - result.length))
 
-      // Return parent hashes so caller can fetch them too
-      return block.parentHashes
-    } catch {
-      return []
+      // Fetch blocks in parallel (batches of 5)
+      for (let i = 0; i < levelHashes.length && result.length < maxBlocks; i += 5) {
+        const batch = levelHashes.slice(i, i + 5)
+        const promises = batch.map(async (hash) => {
+          if (visited.has(hash) || this.seenHashes.has(hash)) return null
+          visited.add(hash)
+          try {
+            const res = await fetch(`${API_BASE}/blocks/${hash}`)
+            if (!res.ok) return null
+            const data = await res.json()
+            return { data, hash }
+          } catch {
+            return null
+          }
+        })
+
+        const results = await Promise.all(promises)
+        for (const item of results) {
+          if (!item || result.length >= maxBlocks) continue
+          const block = this.parseRestBlock(item.data)
+          if (!block) continue
+          result.push(block)
+
+          // Queue parents for next depth level (limit to first 3 parents to keep graph manageable)
+          if (depth < maxDepth) {
+            for (const parentHash of block.parentHashes.slice(0, 3)) {
+              if (!visited.has(parentHash) && !this.seenHashes.has(parentHash)) {
+                nextLevel.push(parentHash)
+              }
+            }
+          }
+        }
+      }
+
+      currentLevel = nextLevel
+    }
+
+    return result
+  }
+
+  /**
+   * Second pass: classify blocks as blue or red based on merge set data.
+   * A block appearing in any other block's mergeSetReds is red.
+   * Otherwise it's blue.
+   */
+  private classifyBlueRed(blocks: DagBlock[]) {
+    const redSet = new Set<string>()
+
+    // Collect all hashes that appear in red merge sets
+    for (const block of blocks) {
+      for (const redHash of block.mergeSetReds) {
+        redSet.add(redHash)
+      }
+    }
+
+    // Apply classification
+    for (const block of blocks) {
+      if (redSet.has(block.hash)) {
+        block.isBlue = false
+      }
+      // blocks default to isBlue=true from parseRestBlock
     }
   }
 
@@ -134,11 +220,10 @@ export class KaspaClient {
       if (!hash) return null
 
       const parents: string[] = []
-      if (data.parents) {
-        for (const level of data.parents) {
-          if (Array.isArray(level.parentHashes)) {
-            parents.push(...level.parentHashes)
-          }
+      const parentLevels = data.header?.parents || data.parents || []
+      for (const level of parentLevels) {
+        if (Array.isArray(level.parentHashes)) {
+          parents.push(...level.parentHashes)
         }
       }
 
@@ -147,10 +232,9 @@ export class KaspaClient {
       const timestamp = Number(data.header?.timestamp || Date.now())
       const txCount = data.transactions?.length || 0
 
-      // Blue classification: if block is in mergeSetBluesHashes of some block, it's blue
-      // Simplified: selected parent is always blue, and most blocks are blue
-      const mergeSetBlues = data.verboseData?.mergeSetBluesHashes || []
-      const isBlue = mergeSetBlues.length > 0 || Math.random() > 0.15
+      const mergeSetBlues: string[] = data.verboseData?.mergeSetBluesHashes || []
+      const mergeSetReds: string[] = data.verboseData?.mergeSetRedsHashes || []
+      const selectedParentHash: string | null = (parentLevels[0]?.parentHashes?.[0]) || null
 
       return {
         hash,
@@ -159,7 +243,11 @@ export class KaspaClient {
         daaScore,
         timestamp,
         txCount,
-        isBlue,
+        isBlue: true, // default to blue, classifyBlueRed will fix
+        mergeSetBlues,
+        mergeSetReds,
+        isVirtualChain: false, // set later by markVirtualChain
+        selectedParentHash,
         x: 0, y: 0,
         targetX: 0, targetY: 0,
         opacity: 0, scale: 0.5,
@@ -240,11 +328,10 @@ export class KaspaClient {
       const data = await res.json()
 
       const parents: string[] = []
-      if (data.parents) {
-        for (const level of data.parents) {
-          if (Array.isArray(level.parentHashes)) {
-            parents.push(...level.parentHashes)
-          }
+      const parentLevels = data.header?.parents || data.parents || []
+      for (const level of parentLevels) {
+        if (Array.isArray(level.parentHashes)) {
+          parents.push(...level.parentHashes)
         }
       }
 

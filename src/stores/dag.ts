@@ -13,6 +13,36 @@ const txCounts = writable<number[]>([])
 export const blocksPerSecond = writable(0)
 export const txPerSecond = writable(0)
 
+/**
+ * Walk the selectedParentHash chain from the highest-DAA-score block backwards,
+ * marking blocks on the virtual selected parent chain.
+ */
+export function markVirtualChain(blockArr: DagBlock[], bMap: Map<string, DagBlock>) {
+  // Reset all
+  for (const block of blockArr) {
+    block.isVirtualChain = false
+  }
+
+  if (blockArr.length === 0) return
+
+  // Find the tip: block with highest daaScore
+  let tip = blockArr[0]
+  for (const block of blockArr) {
+    if (block.daaScore > tip.daaScore) tip = block
+  }
+
+  // Walk the selected parent chain backwards
+  let current: DagBlock | undefined = tip
+  while (current) {
+    current.isVirtualChain = true
+    if (current.selectedParentHash) {
+      current = bMap.get(current.selectedParentHash)
+    } else {
+      break
+    }
+  }
+}
+
 export function addBlock(block: DagBlock) {
   const now = Date.now()
 
@@ -29,6 +59,11 @@ export function addBlock(block: DagBlock) {
     m.set(block.hash, block)
     return m
   })
+
+  // Re-mark virtual chain after adding blocks
+  const currentBlocks = get(blocks)
+  const currentMap = get(blockMap)
+  markVirtualChain(currentBlocks, currentMap)
 
   // Track timestamps for BPS calculation
   blockTimestamps.update(ts => {

@@ -12,38 +12,33 @@ export interface LayoutConfig {
   zoom: number
 }
 
-// Simple sequential layout: each block gets the next X position
-// Blocks arriving together get stacked vertically
+// DAA score-based layout: blocks at the same DAA score are parallel columns
 export function layoutBlocks(blocks: DagBlock[], config: LayoutConfig): void {
   if (blocks.length === 0) return
 
   const centerY = config.height / 2
 
-  // Group blocks into columns based on arrival time batches
-  const columns: DagBlock[][] = []
-  let currentBatch: DagBlock[] = []
-  let lastAddedAt = 0
-
+  // Group blocks by daaScore (blocks at same DAA score are parallel)
+  const columns = new Map<number, DagBlock[]>()
   for (const block of blocks) {
-    // New column if enough time passed since last block
-    if (currentBatch.length > 0 && (block.addedAt - lastAddedAt) > 20) {
-      columns.push(currentBatch)
-      currentBatch = []
-    }
-    currentBatch.push(block)
-    lastAddedAt = block.addedAt
+    const score = block.daaScore
+    if (!columns.has(score)) columns.set(score, [])
+    columns.get(score)!.push(block)
   }
-  if (currentBatch.length > 0) columns.push(currentBatch)
+
+  // Sort columns by daaScore
+  const sortedScores = [...columns.keys()].sort((a, b) => a - b)
 
   // Position each column
-  for (let col = 0; col < columns.length; col++) {
-    const colBlocks = columns[col]
-    const x = col * BLOCK_SPACING_X
+  for (let i = 0; i < sortedScores.length; i++) {
+    const score = sortedScores[i]
+    const colBlocks = columns.get(score)!
+    const x = i * BLOCK_SPACING_X
 
-    for (let i = 0; i < colBlocks.length; i++) {
-      const block = colBlocks[i]
+    for (let j = 0; j < colBlocks.length; j++) {
+      const block = colBlocks[j]
       const spread = colBlocks.length - 1
-      const yOffset = spread === 0 ? 0 : (i - spread / 2) * BLOCK_SPACING_Y
+      const yOffset = spread === 0 ? 0 : (j - spread / 2) * BLOCK_SPACING_Y
       block.targetX = x
       block.targetY = centerY + yOffset
     }

@@ -35,6 +35,7 @@ export function generateMockBlock(): DagBlock {
   mockBlockCount++
 
   const isBlue = Math.random() > 0.15 // ~85% blue
+  const selectedParentHash = parentHashes.length > 0 ? parentHashes[0] : null
 
   return {
     hash,
@@ -44,6 +45,10 @@ export function generateMockBlock(): DagBlock {
     timestamp: Date.now(),
     txCount: Math.floor(Math.random() * 5),
     isBlue,
+    mergeSetBlues: parentHashes.filter(() => Math.random() > 0.3),
+    mergeSetReds: [],
+    isVirtualChain: false,
+    selectedParentHash,
     x: 0,
     y: 0,
     targetX: 0,

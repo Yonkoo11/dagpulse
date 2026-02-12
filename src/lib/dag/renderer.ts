@@ -8,9 +8,13 @@ const COLORS = {
   edgeRed: 'rgba(107, 114, 128, 0.25)',
   blockBlue: '#06b6d4',
   blockBlueFill: '#0e7490',
-  blockRed: '#6b7280',
-  blockRedFill: '#374151',
+  blockRed: '#ef4444',
+  blockRedFill: 'rgba(239, 68, 68, 0.4)',
   selectedRing: '#f59e0b',
+  virtualChain: '#f59e0b',
+  virtualChainEdge: 'rgba(245, 158, 11, 0.7)',
+  mergeSetBlueHighlight: 'rgba(6, 182, 212, 0.15)',
+  mergeSetRedHighlight: 'rgba(239, 68, 68, 0.15)',
 }
 
 export interface RenderState {
@@ -38,7 +42,15 @@ export function renderDAG(
   ctx.translate(state.offsetX, state.offsetY)
   ctx.scale(state.zoom, state.zoom)
 
-  // Draw edges: connect blocks to parents in blockMap, or to nearby previous blocks
+  // Draw merge set highlights for selected block (behind everything)
+  if (state.selectedHash) {
+    const selectedBlock = blockMap.get(state.selectedHash)
+    if (selectedBlock) {
+      drawMergeSetHighlights(ctx, selectedBlock, blockMap)
+    }
+  }
+
+  // Draw edges: only real parent edges (no synthetic)
   drawAllEdges(ctx, blocks, blockMap, state)
 
   // Draw blocks on top
@@ -73,73 +85,85 @@ function drawGrid(ctx: CanvasRenderingContext2D, ox: number, oy: number, zoom: n
   ctx.stroke()
 }
 
+function drawMergeSetHighlights(
+  ctx: CanvasRenderingContext2D,
+  selectedBlock: DagBlock,
+  blockMap: Map<string, DagBlock>
+) {
+  const highlightR = BLOCK_RADIUS + 10
+
+  // Highlight blue merge set blocks
+  for (const blueHash of selectedBlock.mergeSetBlues) {
+    const block = blockMap.get(blueHash)
+    if (block && block.opacity > 0.05) {
+      ctx.beginPath()
+      ctx.arc(block.x, block.y, highlightR, 0, Math.PI * 2)
+      ctx.fillStyle = COLORS.mergeSetBlueHighlight
+      ctx.fill()
+    }
+  }
+
+  // Highlight red merge set blocks
+  for (const redHash of selectedBlock.mergeSetReds) {
+    const block = blockMap.get(redHash)
+    if (block && block.opacity > 0.05) {
+      ctx.beginPath()
+      ctx.arc(block.x, block.y, highlightR, 0, Math.PI * 2)
+      ctx.fillStyle = COLORS.mergeSetRedHighlight
+      ctx.fill()
+    }
+  }
+}
+
 function drawAllEdges(
   ctx: CanvasRenderingContext2D,
   blocks: DagBlock[],
   blockMap: Map<string, DagBlock>,
   state: RenderState
 ) {
-  // Group blocks by their X position (column)
-  const columns = new Map<number, DagBlock[]>()
-  for (const block of blocks) {
-    if (block.opacity < 0.05) continue
-    const col = Math.round(block.targetX)
-    if (!columns.has(col)) columns.set(col, [])
-    columns.get(col)!.push(block)
-  }
-
-  const sortedCols = [...columns.keys()].sort((a, b) => a - b)
-
-  // Collect edges, separate highlighted from normal for draw order
+  // Collect edges, separate by draw priority
   type Edge = { from: DagBlock; to: DagBlock }
   const normalEdges: Edge[] = []
   const highlightEdges: Edge[] = []
+  const virtualChainEdges: Edge[] = []
 
-  for (let ci = 1; ci < sortedCols.length; ci++) {
-    const currCol = columns.get(sortedCols[ci])!
-    const prevCol = columns.get(sortedCols[ci - 1])!
+  for (const block of blocks) {
+    if (block.opacity < 0.05) continue
 
-    for (const block of currCol) {
-      let hasRealEdge = false
-      for (const parentHash of block.parentHashes) {
-        const parent = blockMap.get(parentHash)
-        if (parent && parent.opacity > 0.05) {
-          const edge = { from: parent, to: block }
-          const isHL = state.selectedHash === block.hash || state.selectedHash === parent.hash
-            || state.hoveredHash === block.hash || state.hoveredHash === parent.hash
-          if (isHL) highlightEdges.push(edge)
-          else normalEdges.push(edge)
-          hasRealEdge = true
-        }
-      }
+    for (const parentHash of block.parentHashes) {
+      const parent = blockMap.get(parentHash)
+      if (!parent || parent.opacity < 0.05) continue
 
-      if (!hasRealEdge && prevCol.length > 0) {
-        const sorted = [...prevCol].sort((a, b) =>
-          Math.abs(a.y - block.y) - Math.abs(b.y - block.y)
-        )
-        const hashNum = parseInt(block.hash.slice(0, 6), 16) || 0
-        const numParents = 1 + (hashNum % 2)
-        for (let p = 0; p < Math.min(numParents, sorted.length); p++) {
-          const edge = { from: sorted[p], to: block }
-          const isHL = state.selectedHash === block.hash || state.selectedHash === sorted[p].hash
-            || state.hoveredHash === block.hash || state.hoveredHash === sorted[p].hash
-          if (isHL) highlightEdges.push(edge)
-          else normalEdges.push(edge)
-        }
+      const edge = { from: parent, to: block }
+      const isHL = state.selectedHash === block.hash || state.selectedHash === parent.hash
+        || state.hoveredHash === block.hash || state.hoveredHash === parent.hash
+
+      // Check if this is a virtual chain edge (both blocks on virtual chain, connected via selectedParent)
+      const isVirtualChainEdge = block.isVirtualChain && parent.isVirtualChain
+        && block.selectedParentHash === parent.hash
+
+      if (isVirtualChainEdge) {
+        virtualChainEdges.push(edge)
+      } else if (isHL) {
+        highlightEdges.push(edge)
+      } else {
+        normalEdges.push(edge)
       }
     }
   }
 
-  // Draw normal edges first, highlighted on top
-  for (const e of normalEdges) drawEdge(ctx, e.from, e.to, state)
-  for (const e of highlightEdges) drawEdge(ctx, e.from, e.to, state)
+  // Draw normal edges first, then highlighted, then virtual chain on top
+  for (const e of normalEdges) drawEdge(ctx, e.from, e.to, state, false)
+  for (const e of highlightEdges) drawEdge(ctx, e.from, e.to, state, false)
+  for (const e of virtualChainEdges) drawEdge(ctx, e.from, e.to, state, true)
 }
 
 function drawEdge(
   ctx: CanvasRenderingContext2D,
   from: DagBlock,
   to: DagBlock,
-  state: RenderState
+  state: RenderState,
+  isVirtualChain: boolean
 ) {
   const isSelected = state.selectedHash === to.hash || state.selectedHash === from.hash
   const isHovered = state.hoveredHash === to.hash || state.hoveredHash === from.hash
@@ -157,7 +181,11 @@ function drawEdge(
     to.x, to.y
   )
 
-  if (isSelected) {
+  if (isVirtualChain) {
+    ctx.strokeStyle = COLORS.virtualChainEdge
+    ctx.lineWidth = 3
+    ctx.globalAlpha = 0.85
+  } else if (isSelected) {
     ctx.strokeStyle = COLORS.selectedRing
     ctx.lineWidth = 2.5
     ctx.globalAlpha = 0.9
@@ -174,9 +202,9 @@ function drawEdge(
   ctx.stroke()
 
   // Draw directional arrow at the endpoint (pointing toward child)
-  if (isHighlight || ctx.globalAlpha > 0.3) {
+  if (isHighlight || isVirtualChain || ctx.globalAlpha > 0.3) {
     ctx.fillStyle = ctx.strokeStyle
-    drawArrowHead(ctx, from, to, cpOffset, isHighlight)
+    drawArrowHead(ctx, from, to, cpOffset, isHighlight || isVirtualChain)
   }
 
   ctx.globalAlpha = 1
@@ -236,23 +264,36 @@ function drawBlock(ctx: CanvasRenderingContext2D, block: DagBlock, state: Render
     ctx.arc(block.x, block.y, glowR, 0, Math.PI * 2)
     ctx.fillStyle = block.isBlue
       ? `rgba(34, 211, 238, ${intensity})`
-      : `rgba(156, 163, 175, ${intensity})`
+      : `rgba(239, 68, 68, ${intensity * 0.6})`
     ctx.fill()
+  }
+
+  // Virtual chain: gold/amber outer glow (always visible)
+  if (block.isVirtualChain) {
+    ctx.beginPath()
+    ctx.arc(block.x, block.y, r + 4, 0, Math.PI * 2)
+    ctx.strokeStyle = COLORS.virtualChain
+    ctx.lineWidth = 2
+    ctx.globalAlpha = block.opacity * 0.6
+    ctx.stroke()
+    ctx.globalAlpha = block.opacity
   }
 
   // Block body
   ctx.beginPath()
   ctx.arc(block.x, block.y, r, 0, Math.PI * 2)
-  ctx.fillStyle = isHovered
-    ? (block.isBlue ? COLORS.blockBlue : COLORS.blockRed)
-    : (block.isBlue ? COLORS.blockBlueFill : COLORS.blockRedFill)
+  if (block.isBlue) {
+    ctx.fillStyle = isHovered ? COLORS.blockBlue : COLORS.blockBlueFill
+  } else {
+    ctx.fillStyle = isHovered ? COLORS.blockRed : COLORS.blockRedFill
+  }
   ctx.fill()
 
   // Border
   ctx.beginPath()
   ctx.arc(block.x, block.y, r, 0, Math.PI * 2)
   ctx.strokeStyle = block.isBlue ? COLORS.blockBlue : COLORS.blockRed
-  ctx.lineWidth = isSelected ? 2.5 : 1.5
+  ctx.lineWidth = block.isVirtualChain ? 3 : (isSelected ? 2.5 : 1.5)
   ctx.stroke()
 
   // Selection ring

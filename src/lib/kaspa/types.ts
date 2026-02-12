@@ -6,6 +6,10 @@ export interface DagBlock {
   timestamp: number
   txCount: number
   isBlue: boolean
+  mergeSetBlues: string[]
+  mergeSetReds: string[]
+  isVirtualChain: boolean
+  selectedParentHash: string | null
   // Canvas rendering state
   x: number
   y: number

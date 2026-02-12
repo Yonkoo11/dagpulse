@@ -4,6 +4,7 @@
   import StatsPanel from './components/StatsPanel.svelte'
   import DagCanvas from './components/DagCanvas.svelte'
   import BlockInspector from './components/BlockInspector.svelte'
+  import ConsensusInfo from './components/ConsensusInfo.svelte'
   import SpeedBenchmark from './components/SpeedBenchmark.svelte'
   import { kaspaClient } from './lib/kaspa/client'
   import { addBlock, blocks } from './stores/dag'
@@ -80,5 +81,6 @@
     {/if}
   </div>
   <BlockInspector />
+  <ConsensusInfo />
   <SpeedBenchmark />
 </div>
